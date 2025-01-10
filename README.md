@@ -16,7 +16,7 @@ Rows and columns are created in different .pto projects and combined into a fina
 
 The idea is avoiding trying to find control points in all images (to avoid false matches or too much distortion)
 Each image will only be stitched to the immediatlely adjacent images (up to eight), but if more images overlap that information will be ignored
-and no control points will be created. For example: even if 4D adn 2C have overlapping information, no control points will be created.
+and no control points will be created. For example: even if 4D and 2C have overlapping information, no control points will be created.
 
 The script assumes that the images are shot in sequence and the numbering of the images corresponds to rows or columns.
 If the images do not match a regular grid the sript will not work and images will need to be renamed to be arranged a coherent pattern.
