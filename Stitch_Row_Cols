@@ -1,0 +1,214 @@
+#!/bin/bash
+# Script to select images to be combined in a single panorama using panotools
+# Images are arranged in a grid by rows and columns.
+# User can select files and set the grid dimensions
+
+# Prompt user to enter FOV with a default value of 10
+FOV=$(zenity --entry --title="Field of View" --text="Enter the Field of View (FOV) for the panorama" --entry-text="10")
+if [ -z "$FOV" ]; then
+  echo "[ERROR] - No FOV specified."
+  exit 1
+fi
+
+num_rows=0
+num_columns=0
+
+# Function to create projects by row
+create_projects_by_row() {
+  local row=1
+  for ((i=1; i<=${#selected_files[@]}; i+=num_columns)); do
+    echo -e "\nrow$row:\n${selected_files[@]:$((i-1)):num_columns}\n"
+    pto_gen --projection=0 -s 1 --fov=$FOV -o row$row.pto "${selected_files[@]:$((i-1)):num_columns}"
+    cpfind -o row$row.pto --linearmatch row$row.pto
+    pto_var -o row$row.pto --opt r,TrX,TrY,!r0,!TrX0,!TrY0 row$row.pto
+    pano_modify --projection=0 -o row$row.pto row$row.pto
+    autooptimiser -n -o auto_optim_row$row.pto row$row.pto
+    ((row++))
+  done
+}
+
+# Function to create projects by column
+create_projects_by_column() {
+  local column=1
+  for ((j=0; j<num_columns; j++)); do
+    newArray=()
+    for ((k=j; k<${#selected_files[@]}; k+=num_columns)); do
+      newArray+=("${selected_files[k]}")
+    done
+    echo -e "column$column:\n${newArray[@]}"
+    pto_gen --projection=0 -s 1 --fov=$FOV -o column$column.pto "${newArray[@]}"
+    cpfind -o column$column.pto --linearmatch column$column.pto
+    pto_var -o column$column.pto --opt r,TrX,TrY,!r0,!TrX0,!TrY0 column$column.pto
+    pano_modify --projection=0 -o column$column.pto column$column.pto
+    autooptimiser -n -o auto_optim_column$column.pto column$column.pto
+    ((column++))
+  done
+}
+
+# Check if default directory file exists
+if [ -f "$HOME/.default_dir" ]; then
+  default_dir=$(cat "$HOME/.default_dir")
+else
+  default_dir="$HOME/Desktop/"
+fi
+
+files=()
+# Select at least two files
+while [[ "${#files[@]}" -lt 2 ]]; do
+  IFS=',' read -r -a files <<< "$(zenity --file-selection \
+    --filename="$default_dir" \
+    --title="Select more than 2 Images" --multiple --separator=',' \
+    --file-filter="*.TIF *.TIFF *.tif *.tiff *.jpg *.JPG")"
+
+  if [ ${#files[@]} -eq 0 ]; then
+    exit 1
+  fi
+
+  echo "${#files[@]} files selected"
+  if [[ ${#files[@]} -lt 2 ]]; then
+    echo "Try again, need at least 2 files"
+    zenity --warning --width=300 --title="Error" \
+      --text="Only ${#files[@]} files selected.\nSelect at least 2 files."
+  fi
+done
+
+original_path="$(dirname "${files[0]}")/"
+echo "original path: $original_path"
+cd "$original_path" || exit
+selected_dir=$(dirname "${files[0]}")
+
+# Save selected_dir in a file for future use in scripts
+echo "Selected Directory"
+echo "$selected_dir"
+echo -e "$selected_dir" > "$HOME/.default_dir"
+  
+selected_files=()
+for f in "${files[@]}"; do
+  name="${f##*/}"
+  selected_files+=("$name")
+done
+
+num_files=${#selected_files[@]}
+echo "$num_files files selected"
+echo "selected files: ${selected_files[*]}"
+
+# Calculate a regular grid with the number of selected images
+while true; do
+  IFS='|' read -r -a RC <<< "$(zenity --forms --width=300 --title="$num_files files: " --text="Rows and Columns" --add-entry="Rows" --add-entry="Columns")"
+  
+  if [ $? -ne 0 ]; then
+    echo "[ERROR] - User cancelled."
+    exit 1
+  fi
+
+  num_rows=${RC[0]}
+  num_columns=${RC[1]}
+
+  # Validate input
+  if [ -z "$num_rows" ] || [ -z "$num_columns" ]; then
+    zenity --warning --width=300 --title="Error" --text="Both rows and columns must be specified."
+    continue
+  fi
+
+  if ((num_rows <= 0 || num_columns <= 0)); then
+    zenity --warning --width=300 --title="Error" --text="Rows and columns must be greater than zero."
+    continue
+  fi
+
+  if ((num_files != num_columns * num_rows)); then
+    zenity --warning --width=300 --title="Error" --text="The number of files cannot be arranged into a grid of ${num_columns} columns and ${num_rows} rows. Please try different numbers or cancel."
+    continue
+  fi
+
+  # If the user provided valid input, exit the loop
+  break
+done
+
+# Calculate a regular grid with the number of selected images
+while true; do
+  IFS='|' read -r -a RC <<< "$(zenity --forms --width=300 --title="$num_files files: " --text="Rows and Columns" --add-entry="Rows" --add-entry="Columns")"
+  
+  if [ $? -ne 0 ]; then
+    echo "[ERROR] - User cancelled."
+    exit 1
+  fi
+
+  num_rows=${RC[0]}
+  num_columns=${RC[1]}
+
+  # Determine if rows or columns were left blank and calculate the missing dimension
+  if [ -z "$num_rows" ] && [ -n "$num_columns" ]; then
+    if (( num_files % num_columns == 0 )); then
+      num_rows=$((num_files / num_columns))
+    else
+      zenity --warning --width=300 --title="Error" --text="${num_files} files can't be\narranged in ${num_columns} columns. Please specify valid dimensions or cancel."
+      continue
+    fi
+  elif [ -z "$num_columns" ] && [ -n "$num_rows" ]; then
+    if (( num_files % num_rows == 0 )); then
+      num_columns=$((num_files / num_rows))
+    else
+      zenity --warning --width=300 --title="Error" --text="${num_files} files can't be\narranged in ${num_rows} rows. Please specify valid dimensions or cancel."
+      continue
+    fi
+  elif [ -z "$num_rows" ] && [ -z "$num_columns" ]; then
+    zenity --warning --width=300 --title="Error" --text="You must specify at least one dimension (rows or columns)."
+    continue
+  elif ((num_files != num_columns * num_rows)); then
+    zenity --warning --width=300 --title="Error" --text="The number of files cannot be arranged into a grid of ${num_columns} columns and ${num_rows} rows. Please try different numbers or cancel."
+    continue
+  fi
+
+  # If the user provided valid input, exit the loop
+  break
+done
+
+
+
+zenity --width=300 --info --title "Confirmation" --text "Panorama Grid:\n$num_columns columns\nby\n$num_rows rows."
+
+# Create projects by column if more than one row, otherwise notify the user
+if [[ $num_rows -gt 1 ]]; then
+  create_projects_by_column
+else
+  zenity --info --width=300 --title="Info" --text="Only one row detected.\nNo projects will be created by column."
+fi
+
+# Create projects by row if more than one column, otherwise notify the user
+if [[ $num_columns -gt 1 ]]; then
+  create_projects_by_row
+else
+  zenity --info --width=300 --title="Info" --text="Only one column detected.\nNo projects will be created by row."
+fi
+
+# Check the number of auto_optim_*.pto files
+num_auto_optim_files=$(ls auto_optim_*.pto 2>/dev/null | wc -l)
+
+# Define the source PTO file for the subsequent commands
+if [[ $num_auto_optim_files -gt 1 ]]; then
+  # Merge all pto projects into one
+  pto_merge -o merged.pto auto_optim_*.pto
+  source_pto="merged.pto"
+else
+  # Use the single auto_optim_*.pto file
+  source_pto=$(ls auto_optim_*.pto 2>/dev/null)
+fi
+
+# Each image is assigned a new lens
+for ((j=0; j<num_files; j++)); do
+  echo "Assigning new lens for image index $j"
+  pto_lensstack -o "$source_pto" --new-lens i$j "$source_pto"
+done
+
+# Modify projection to rectilinear
+pano_modify --projection=0 -o reprojected.pto "$source_pto"
+
+# Set optimization variables
+pto_var -o optimized.pto --opt r,TrX,TrY,!r0,!TrX0,!TrY0 reprojected.pto
+
+# Calculate the panorama using all the control points and set parameters
+autooptimiser -a -o final.pto optimized.pto
+
+zenity --info --width=300 --title="Info" --text="Done"
+echo "Done"
+
