@@ -2,8 +2,11 @@
 Utilities in python and bash to automate multirow panorama stitching from different images arranged in rows a and columns.
 
 1A 1B 1C 1D
+
 2A 2B 2C 2D
+
 3A 3B 3C 3D
+
 4A 4B 4C 4D
 
 The script will open windows to select images and ask for number of rows and columns.
