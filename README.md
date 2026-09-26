@@ -1,5 +1,6 @@
-# Panorama-Stitching
+# Panorama-Stitching script for panotools (hugin)
 Utilities in python and bash to automate multirow panorama stitching from different images arranged in rows a and columns.
+
 
 1A 1B 1C 1D
 
